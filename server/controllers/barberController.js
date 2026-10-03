@@ -4,7 +4,7 @@ import { StatusCodes } from "http-status-codes";
 
 export const createBarber = async (req, res) => {
   try {
-    const { user, bio, specialties, experience, profileImage } = req.body;
+    const { user, bio, skills, experience, profileImage } = req.body;
 
     if (!user) {
       return res.status(StatusCodes.BAD_REQUEST).json({
@@ -41,7 +41,7 @@ export const createBarber = async (req, res) => {
     const barber = await Barber.create({
       user,
       bio,
-      specialties,
+      skills,
       experience,
       profileImage,
     });
@@ -116,7 +116,7 @@ export const getOneBarber = async (req, res) => {
 
 export const updateBarber = async (req, res) => {
   try {
-    const { bio, specialties, experience, profileImage } = req.body;
+    const { bio, skills, experience, profileImage } = req.body;
 
     const barber = await Barber.findOne({
       _id: req.params.id,
@@ -133,7 +133,7 @@ export const updateBarber = async (req, res) => {
     // Admin can update any barber
     if (req.user.role === "admin") {
       if (bio !== undefined) barber.bio = bio.trim();
-      if (specialties !== undefined) barber.specialties = specialties;
+      if (skills !== undefined) barber.skills = skills;
       if (experience !== undefined) barber.experience = experience;
       if (profileImage !== undefined) barber.profileImage = profileImage;
     }
@@ -148,7 +148,7 @@ export const updateBarber = async (req, res) => {
       }
 
       if (bio !== undefined) barber.bio = bio.trim();
-      if (specialties !== undefined) barber.specialties = specialties;
+      if (skills !== undefined) barber.skills = skills;
       if (experience !== undefined) barber.experience = experience;
       if (profileImage !== undefined) barber.profileImage = profileImage;
     }
@@ -169,6 +169,48 @@ export const updateBarber = async (req, res) => {
       barber,
     });
   } catch (error) {
+    return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+      message: "Server error",
+      status: false,
+    });
+  }
+};
+
+export const updateBarberAvailability = async (req, res) => {
+  try {
+    const { availability } = req.body;
+
+    if (!availability) {
+      return res.status(StatusCodes.BAD_REQUEST).json({
+        message: "Availability is required",
+        status: false,
+      });
+    }
+
+    const barber = await Barber.findById(req.params.id);
+
+    if (!barber) {
+      return res.status(StatusCodes.NOT_FOUND).json({
+        message: "Barber not found",
+        status: false,
+      });
+    }
+
+    barber.availability = {
+      ...barber.availability.toObject(),
+      ...availability,
+    };
+
+    await barber.save();
+
+    return res.status(StatusCodes.OK).json({
+      message: "Barber availability updated successfully",
+      status: true,
+      availability: barber.availability,
+    });
+  } catch (error) {
+    console.error(error);
+
     return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
       message: "Server error",
       status: false,

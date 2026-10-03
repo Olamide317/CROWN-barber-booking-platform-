@@ -6,6 +6,7 @@ import {
   updateBarber,
   deactivateBarber,
   activateBarber,
+  updateBarberAvailability,
 } from "../controllers/barberController.js";
 import authenticate from "../middleware/authMiddleware.js";
 import authorize from "../middleware/roleMiddleware.js";
@@ -22,11 +23,12 @@ router.patch(
   authorize("admin"),
   deactivateBarber,
 );
+router.patch("/:id/activate", authenticate, authorize("admin"), activateBarber);
 router.patch(
-  "/:id/activate",
+  "/:id/availability",
   authenticate,
   authorize("admin"),
-  activateBarber,
+  updateBarberAvailability,
 );
 
 export default router;

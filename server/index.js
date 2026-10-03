@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import authRoutes from "./routes/auth.js";
 import serviceRoutes from "./routes/serviceRoutes.js";
 import barberRoutes from "./routes/barberRoutes.js"
+import businessSettingsRoutes from "./routes/businessSettingsRoutes.js";
 
 const app = express();
 
@@ -17,6 +18,7 @@ app.use(express.json());
 app.use("/auth", authRoutes);
 app.use("/services", serviceRoutes);
 app.use("/barbers", barberRoutes);
+app.use("/settings", businessSettingsRoutes);
 
 async function start() {
   try {
