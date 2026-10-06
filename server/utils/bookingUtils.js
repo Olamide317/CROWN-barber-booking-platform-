@@ -32,9 +32,10 @@ const minutesToTime = (minutes) => {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
 
-  return `${String(hours).padStart(2, "0")}:${String(
-    remainingMinutes,
-  ).padStart(2, "0")}`;
+  return `${String(hours).padStart(2, "0")}:${String(remainingMinutes).padStart(
+    2,
+    "0",
+  )}`;
 };
 
 export const hasAppointmentConflict = async (
@@ -65,8 +66,7 @@ export const isWithinWorkingHours = (
   }
 
   return (
-    startTime >= dayAvailability.startTime &&
-    endTime <= dayAvailability.endTime
+    startTime >= dayAvailability.startTime && endTime <= dayAvailability.endTime
   );
 };
 
@@ -189,4 +189,72 @@ export const checkWalkInCoverage = async ({
   }
 
   return availableBarbers >= settings.minimumAvailableBarbers;
+};
+
+export const findNearbyAvailableSlots = async ({
+  serviceId,
+  requestedStartAt,
+  serviceDuration,
+  dayOfWeek,
+}) => {
+  const alternatives = [];
+
+  // Check up to 4 hours around the requested time
+  const searchRangeMinutes = 240;
+
+  // Search in 15-minute increments
+  for (let offset = 15; offset <= searchRangeMinutes; offset += 15) {
+    const beforeStart = new Date(
+      requestedStartAt.getTime() - offset * 60 * 1000,
+    );
+
+    const afterStart = new Date(
+      requestedStartAt.getTime() + offset * 60 * 1000,
+    );
+
+    const candidateStarts = [beforeStart, afterStart];
+
+    for (const startAt of candidateStarts) {
+      const endAt = new Date(startAt.getTime() + serviceDuration * 60 * 1000);
+
+      const eligibleBarbers = await getEligibleBarbers({
+        serviceId,
+        startAt,
+        endAt,
+        dayOfWeek,
+      });
+
+      if (eligibleBarbers.length === 0) {
+        continue;
+      }
+
+      const validBarbers = [];
+
+      for (const barber of eligibleBarbers) {
+        const hasCoverage = await checkWalkInCoverage({
+          assignedBarberId: barber._id,
+          startAt,
+          endAt,
+          dayOfWeek,
+        });
+
+        if (hasCoverage) {
+          validBarbers.push(barber);
+        }
+      }
+
+      if (validBarbers.length === 0) {
+        continue;
+      }
+
+      alternatives.push({
+        startAt,
+        endAt,
+        minutesFromRequestedTime: offset,
+        eligibleBarbers: validBarbers,
+      });
+    }
+  }
+
+  return alternatives;
 };
