@@ -2,6 +2,85 @@ import Appointment from "../models/Appointment.js";
 import Barber from "../models/Barber.js";
 import BusinessSettings from "../models/BusinessSettings.js";
 
+const getAppointmentsForPeriod = async ({ startAt, endAt, barberIds }) => {
+  return Appointment.find({
+    barber: { $in: barberIds },
+    status: { $ne: "cancelled" },
+    startAt: { $lt: endAt },
+    endAt: { $gt: startAt },
+  });
+};
+
+const hasAppointmentConflictFromList = ({
+  barberId,
+  requestedStartAt,
+  requestedEndAt,
+  appointments,
+}) => {
+  return appointments.some((appointment) => {
+    if (appointment.barber.toString() !== barberId.toString()) {
+      return false;
+    }
+
+    return (
+      appointment.startAt < requestedEndAt &&
+      appointment.endAt > requestedStartAt
+    );
+  });
+};
+
+const getAvailableBarbersForPeriod = ({
+  startAt,
+  endAt,
+  dayOfWeek,
+  activeBarbers,
+  appointments,
+}) => {
+  const availableBarbers = [];
+
+  const startTime = startAt.toLocaleTimeString("en-GB", {
+    timeZone: "Africa/Lagos",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  const endTime = endAt.toLocaleTimeString("en-GB", {
+    timeZone: "Africa/Lagos",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  for (const barber of activeBarbers) {
+    const worksDuringAppointment = isWithinWorkingHours(
+      barber.availability,
+      dayOfWeek,
+      startTime,
+      endTime,
+    );
+
+    if (!worksDuringAppointment) {
+      continue;
+    }
+
+    const hasConflict = hasAppointmentConflictFromList({
+      barberId: barber._id,
+      requestedStartAt: startAt,
+      requestedEndAt: endAt,
+      appointments,
+    });
+
+    if (hasConflict) {
+      continue;
+    }
+
+    availableBarbers.push(barber);
+  }
+
+  return availableBarbers;
+};
+
 export const generateTimeSlots = (
   startTime,
   endTime,
@@ -75,29 +154,30 @@ export const getEligibleBarbers = async ({
   startAt,
   endAt,
   dayOfWeek,
+  barbers,
+  appointments,
 }) => {
-  const barbers = await Barber.find({
-    isActive: true,
-    skills: serviceId,
-  });
-
   const eligibleBarbers = [];
 
-  for (const barber of barbers) {
-    const startTime = startAt.toLocaleTimeString("en-GB", {
-      timeZone: "Africa/Lagos",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
+  const startTime = startAt.toLocaleTimeString("en-GB", {
+    timeZone: "Africa/Lagos",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 
-    const endTime = endAt.toLocaleTimeString("en-GB", {
-      timeZone: "Africa/Lagos",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
+  const endTime = endAt.toLocaleTimeString("en-GB", {
+    timeZone: "Africa/Lagos",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 
+  const serviceBarbers = barbers.filter((barber) =>
+    barber.skills.some((skill) => skill.toString() === serviceId.toString()),
+  );
+
+  for (const barber of serviceBarbers) {
     const worksDuringAppointment = isWithinWorkingHours(
       barber.availability,
       dayOfWeek,
@@ -109,11 +189,12 @@ export const getEligibleBarbers = async ({
       continue;
     }
 
-    const hasConflict = await hasAppointmentConflict(
-      barber._id,
-      startAt,
-      endAt,
-    );
+    const hasConflict = hasAppointmentConflictFromList({
+      barberId: barber._id,
+      requestedStartAt: startAt,
+      requestedEndAt: endAt,
+      appointments,
+    });
 
     if (hasConflict) {
       continue;
@@ -125,12 +206,29 @@ export const getEligibleBarbers = async ({
   return eligibleBarbers;
 };
 
-export const checkWalkInCoverage = async ({
+export const checkWalkInCoverage = ({
   assignedBarberId,
-  startAt,
-  endAt,
-  dayOfWeek,
+  availableBarbers,
+  minimumAvailableBarbers,
 }) => {
+  const availableAfterAssignment = availableBarbers.filter(
+    (barber) => barber._id.toString() !== assignedBarberId.toString(),
+  );
+
+  return availableAfterAssignment.length >= minimumAvailableBarbers;
+};
+
+export const findNearbyAvailableSlots = async ({
+  serviceId,
+  requestedStartAt,
+  serviceDuration,
+}) => {
+  const alternatives = [];
+
+  // Temporary value.
+  const searchRangeMinutes = 120;
+
+  // 1. Load reusable data
   const settings = await BusinessSettings.findOne();
 
   if (!settings) {
@@ -141,68 +239,33 @@ export const checkWalkInCoverage = async ({
     isActive: true,
   });
 
-  let availableBarbers = 0;
-
-  for (const barber of activeBarbers) {
-    // The barber being assigned to the appointment
-    // should not count toward walk-in coverage.
-    if (barber._id.toString() === assignedBarberId.toString()) {
-      continue;
-    }
-
-    const startTime = startAt.toLocaleTimeString("en-GB", {
-      timeZone: "Africa/Lagos",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-
-    const endTime = endAt.toLocaleTimeString("en-GB", {
-      timeZone: "Africa/Lagos",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-
-    const worksDuringAppointment = isWithinWorkingHours(
-      barber.availability,
-      dayOfWeek,
-      startTime,
-      endTime,
-    );
-
-    if (!worksDuringAppointment) {
-      continue;
-    }
-
-    const hasConflict = await hasAppointmentConflict(
-      barber._id,
-      startAt,
-      endAt,
-    );
-
-    if (hasConflict) {
-      continue;
-    }
-
-    availableBarbers++;
+  if (activeBarbers.length === 0) {
+    return alternatives;
   }
 
-  return availableBarbers >= settings.minimumAvailableBarbers;
-};
+  const barberIds = activeBarbers.map((barber) => barber._id);
 
-export const findNearbyAvailableSlots = async ({
-  serviceId,
-  requestedStartAt,
-  serviceDuration,
-  dayOfWeek,
-}) => {
-  const alternatives = [];
+  // 2. Determine the entire search period
+  const earliestStartAt = new Date(
+    requestedStartAt.getTime() - searchRangeMinutes * 60 * 1000,
+  );
 
-  // Check up to 4 hours around the requested time
-  const searchRangeMinutes = 240;
+  const latestStartAt = new Date(
+    requestedStartAt.getTime() + searchRangeMinutes * 60 * 1000,
+  );
 
-  // Search in 15-minute increments
+  const latestEndAt = new Date(
+    latestStartAt.getTime() + serviceDuration * 60 * 1000,
+  );
+
+  // 3. Load appointments once
+  const appointments = await getAppointmentsForPeriod({
+    startAt: earliestStartAt,
+    endAt: latestEndAt,
+    barberIds,
+  });
+
+  // 4. Search nearby times
   for (let offset = 15; offset <= searchRangeMinutes; offset += 15) {
     const beforeStart = new Date(
       requestedStartAt.getTime() - offset * 60 * 1000,
@@ -217,35 +280,46 @@ export const findNearbyAvailableSlots = async ({
     for (const startAt of candidateStarts) {
       const endAt = new Date(startAt.getTime() + serviceDuration * 60 * 1000);
 
+      // Determine the candidate's local day
+      const candidateDayOfWeek = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Africa/Lagos",
+        weekday: "long",
+      })
+        .format(startAt)
+        .toLowerCase();
+
+      // Find eligible barbers
       const eligibleBarbers = await getEligibleBarbers({
         serviceId,
         startAt,
         endAt,
-        dayOfWeek,
+        dayOfWeek: candidateDayOfWeek,
+        barbers: activeBarbers,
+        appointments,
       });
 
       if (eligibleBarbers.length === 0) {
         continue;
       }
 
-      const validBarbers = [];
+      // Check walk-in
+      const availableBarbers = getAvailableBarbersForPeriod({
+        startAt,
+        endAt,
+        dayOfWeek: candidateDayOfWeek,
+        activeBarbers,
+        appointments,
+      });
 
-      for (const barber of eligibleBarbers) {
-        const hasCoverage = await checkWalkInCoverage({
+      const validBarbers = eligibleBarbers.filter((barber) =>
+        checkWalkInCoverage({
           assignedBarberId: barber._id,
-          startAt,
-          endAt,
-          dayOfWeek,
-        });
+          availableBarbers,
+          minimumAvailableBarbers: settings.minimumAvailableBarbers,
+        }),
+      );
 
-        if (hasCoverage) {
-          validBarbers.push(barber);
-        }
-      }
-
-      if (validBarbers.length === 0) {
-        continue;
-      }
+      if (validBarbers.length === 0) continue;
 
       alternatives.push({
         startAt,

@@ -22,7 +22,6 @@ const test = async () => {
       serviceId: "6ac0fa87fd410ba77c39e2e6",
       requestedStartAt,
       serviceDuration: 45,
-      dayOfWeek: "saturday",
     });
 
     console.timeEnd("findNearbyAvailableSlots");
