@@ -1,6 +1,7 @@
 import Appointment from "../models/Appointment.js";
 import Barber from "../models/Barber.js";
 import BusinessSettings from "../models/BusinessSettings.js";
+import Service from "../models/Service.js";
 
 const getAppointmentsForPeriod = async ({ startAt, endAt, barberIds }) => {
   return Appointment.find({
@@ -79,6 +80,10 @@ const getAvailableBarbersForPeriod = ({
   }
 
   return availableBarbers;
+};
+
+export const createLagosDateTime = (date, time) => {
+  return new Date(`${date}T${time}:00+01:00`);
 };
 
 export const generateTimeSlots = (
@@ -331,4 +336,80 @@ export const findNearbyAvailableSlots = async ({
   }
 
   return alternatives;
+};
+
+export const getAvailableSlots = async ({ serviceId, date }) => {
+  const service = await Service.findById(serviceId);
+
+  if (!service || !service.isActive) {
+    throw new Error("Service not found or inactive");
+  }
+
+  const duration = service.duration;
+
+  const settings = await BusinessSettings.findOne();
+
+  if (!settings) {
+    throw new Error("Business settings not found");
+  }
+
+  const activeBarbers = await Barber.find({
+    isActive: true,
+  });
+
+  if (activeBarbers.length === 0) {
+    return [];
+  }
+
+  const dateTime = createLagosDateTime(date, "12:00");
+
+  const dayOfWeek = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Africa/Lagos",
+    weekday: "long",
+  })
+    .format(dateTime)
+    .toLowerCase();
+
+  console.log("Selected date:", date);
+  console.log("Day of week:", dayOfWeek);
+
+  const workingBarbers = activeBarbers.filter((barber) => {
+    const dayAvailability = barber.availability[dayOfWeek];
+
+    return dayAvailability && dayAvailability.isWorking;
+  });
+
+  console.log("Working barbers:", workingBarbers.length);
+
+  const candidateStartTimes = new Set();
+
+  for (const barber of workingBarbers) {
+    const dayAvailability = barber.availability[dayOfWeek];
+
+    const slots = generateTimeSlots(
+      dayAvailability.startTime,
+      dayAvailability.endTime,
+      settings.bookingSlotInterval,
+      duration,
+    );
+
+    slots.forEach((slot) => {
+      candidateStartTimes.add(slot);
+    });
+  }
+
+  const sortedStartTimes = [...candidateStartTimes].sort();
+
+  const candidateSlots = sortedStartTimes.map((startTime) => {
+    const startAt = createLagosDateTime(date, startTime);
+
+    const endAt = new Date(startAt.getTime() + duration * 60 * 1000);
+
+    return {
+      startAt,
+      endAt,
+    };
+  });
+
+  console.log("Candidate slots:", candidateSlots);
 };
